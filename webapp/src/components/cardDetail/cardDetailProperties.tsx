@@ -1,7 +1,7 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 import React, {useEffect, useState} from 'react'
-import {FormattedMessage, useIntl} from 'react-intl'
+import {FormattedMessage, IntlShape, useIntl} from 'react-intl'
 
 import {Board, IPropertyTemplate} from '../../blocks/board'
 import {Card} from '../../blocks/card'
@@ -23,6 +23,106 @@ import {Permission} from '../../constants'
 import {useHasCurrentBoardPermissions} from '../../hooks/permissions'
 import propRegistry from '../../properties'
 import {PropertyType} from '../../properties/types'
+import {useSortableWithGrip} from '../../hooks/sortable'
+import {IContentBlockWithCords} from '../../blocks/contentBlock'
+
+import {dragAndDropRearrange} from './cardDetailContentsUtility'
+
+function moveBlock(card: Card, srcBlock: IContentBlockWithCords, dstBlock: IContentBlockWithCords, intl: IntlShape, moveTo: Position): void {
+    const contentOrder: Array<string | string[]> = []
+    if (card.fields.contentOrder) {
+        for (const contentId of card.fields.contentOrder) {
+            if (typeof contentId === 'string') {
+                contentOrder.push(contentId)
+            } else {
+                contentOrder.push(contentId.slice())
+            }
+        }
+    }
+
+    const srcBlockId = srcBlock.block.id
+    const dstBlockId = dstBlock.block.id
+
+    const srcBlockX = srcBlock.cords.x
+    const dstBlockX = dstBlock.cords.x
+
+    const srcBlockY = (srcBlock.cords.y || srcBlock.cords.y === 0) && (srcBlock.cords.y > -1) ? srcBlock.cords.y : -1
+    const dstBlockY = (dstBlock.cords.y || dstBlock.cords.y === 0) && (dstBlock.cords.y > -1) ? dstBlock.cords.y : -1
+
+    if (srcBlockId === dstBlockId) {
+        return
+    }
+
+    const newContentOrder = dragAndDropRearrange({contentOrder, srcBlockId, srcBlockX, srcBlockY, dstBlockId, dstBlockX, dstBlockY, moveTo})
+
+    mutator.performAsUndoGroup(async () => {
+        const description = intl.formatMessage({id: 'CardDetail.moveContent', defaultMessage: 'Move card content'})
+        await mutator.changeCardContentOrder(card.boardId, card.id, card.fields.contentOrder, newContentOrder, description)
+    })
+}
+
+type CardPropertyWithDragAndDropProps = {
+    x: number
+    card: Card
+    propertyLength: number
+    intl: IntlShape
+    readonly: boolean
+    propertyTemplate: IPropertyTemplate
+    canEditBoardProperties: boolean
+    board: Board
+    canEditBoardCards: boolean
+    newTemplateId: string
+    onPropertyChangeSetAndOpenConfirmationDialog: (newType: PropertyType, newName: string, propertyTemplate: IPropertyTemplate) => void
+    onPropertyDeleteSetAndOpenConfirmationDialog: (propertyTemplate: IPropertyTemplate) => void
+}
+
+const CardPropertyWithDragAndDrop = (props: CardPropertyWithDragAndDropProps) => {
+    const [, isOver, , itemRef] = useSortableWithGrip('property', {block: props.card, cords: {x: props.x}}, true, (src, dst) => moveBlock(props.card, src, dst, props.intl, 'aboveRow'))
+    const [, isOver2, , itemRef2] = useSortableWithGrip('property', {block: props.card, cords: {x: props.x}}, true, (src, dst) => moveBlock(props.card, src, dst, props.intl, 'belowRow'))
+
+    return (
+        <div>
+            <div
+                ref={itemRef}
+                className={`addToRow ${isOver ? 'dragover' : ''}`}
+                style={{width: '94%', height: '10px', marginLeft: '48px'}}
+            />
+            <div
+                key={props.propertyTemplate.id + '-' + props.propertyTemplate.type}
+                className='octo-propertyrow'
+            >
+                {(props.readonly || !props.canEditBoardProperties) && <div className='octo-propertyname octo-propertyname--readonly'>{props.propertyTemplate.name}</div>}
+                {!props.readonly && props.canEditBoardProperties &&
+                    <MenuWrapper isOpen={props.propertyTemplate.id === props.newTemplateId}>
+                        <div className='octo-propertyname'><Button>{props.propertyTemplate.name}</Button></div>
+                        <PropertyMenu
+                            propertyId={props.propertyTemplate.id}
+                            propertyName={props.propertyTemplate.name}
+                            propertyType={propRegistry.get(props.propertyTemplate.type)}
+                            onTypeAndNameChanged={(newType: PropertyType, newName: string) => props.onPropertyChangeSetAndOpenConfirmationDialog(newType, newName, props.propertyTemplate)}
+                            onDelete={() => props.onPropertyDeleteSetAndOpenConfirmationDialog(props.propertyTemplate)}
+                        />
+                    </MenuWrapper>
+                }
+                <PropertyValueElement
+                    readOnly={props.readonly || !props.canEditBoardCards}
+                    card={props.card}
+                    board={props.board}
+                    propertyTemplate={props.propertyTemplate}
+                    showEmptyPlaceholder={true}
+                />
+            </div>
+            {props.x === props.propertyLength - 1 && (
+                <div
+                    ref={itemRef2}
+                    className={`addToRow ${isOver2 ? 'dragover' : ''}`}
+                    style={{width: '94%', height: '10px', marginLeft: '48px'}}
+                />
+            )}
+        </div>
+
+    )
+}
 
 type Props = {
     board: Board
@@ -47,7 +147,7 @@ const CardDetailProperties = (props: Props) => {
         }
     }, [newTemplateId, board.cardProperties])
 
-    const [confirmationDialogBox, setConfirmationDialogBox] = useState<ConfirmationDialogBoxProps>({heading: '', onConfirm: () => {}, onClose: () => {}})
+    const [confirmationDialogBox, setConfirmationDialogBox] = useState<ConfirmationDialogBoxProps>({heading: '', onConfirm: () => { }, onClose: () => { }})
     const [showConfirmationDialog, setShowConfirmationDialog] = useState<boolean>(false)
 
     function onPropertyChangeSetAndOpenConfirmationDialog(newType: PropertyType, newName: string, propertyTemplate: IPropertyTemplate) {
@@ -130,33 +230,23 @@ const CardDetailProperties = (props: Props) => {
 
     return (
         <div className='octo-propertylist CardDetailProperties'>
-            {board.cardProperties.map((propertyTemplate: IPropertyTemplate) => {
+            {board.cardProperties.map((propertyTemplate: IPropertyTemplate, x) => {
                 return (
-                    <div
-                        key={propertyTemplate.id + '-' + propertyTemplate.type}
-                        className='octo-propertyrow'
-                    >
-                        {(props.readonly || !canEditBoardProperties) && <div className='octo-propertyname octo-propertyname--readonly'>{propertyTemplate.name}</div>}
-                        {!props.readonly && canEditBoardProperties &&
-                            <MenuWrapper isOpen={propertyTemplate.id === newTemplateId}>
-                                <div className='octo-propertyname'><Button>{propertyTemplate.name}</Button></div>
-                                <PropertyMenu
-                                    propertyId={propertyTemplate.id}
-                                    propertyName={propertyTemplate.name}
-                                    propertyType={propRegistry.get(propertyTemplate.type)}
-                                    onTypeAndNameChanged={(newType: PropertyType, newName: string) => onPropertyChangeSetAndOpenConfirmationDialog(newType, newName, propertyTemplate)}
-                                    onDelete={() => onPropertyDeleteSetAndOpenConfirmationDialog(propertyTemplate)}
-                                />
-                            </MenuWrapper>
-                        }
-                        <PropertyValueElement
-                            readOnly={props.readonly || !canEditBoardCards}
-                            card={card}
-                            board={board}
-                            propertyTemplate={propertyTemplate}
-                            showEmptyPlaceholder={true}
-                        />
-                    </div>
+                    <CardPropertyWithDragAndDrop
+                        key={x}
+                        card={card}
+                        x={x}
+                        propertyLength={board.cardProperties.length}
+                        intl={intl}
+                        readonly={props.readonly}
+                        canEditBoardCards={canEditBoardCards}
+                        board={board}
+                        canEditBoardProperties={canEditBoardProperties}
+                        newTemplateId={newTemplateId}
+                        onPropertyChangeSetAndOpenConfirmationDialog={onPropertyChangeSetAndOpenConfirmationDialog}
+                        onPropertyDeleteSetAndOpenConfirmationDialog={onPropertyDeleteSetAndOpenConfirmationDialog}
+                        propertyTemplate={propertyTemplate}
+                    />
                 )
             })}
 
