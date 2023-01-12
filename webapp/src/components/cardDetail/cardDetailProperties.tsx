@@ -27,6 +27,7 @@ import {useSortableWithGrip} from '../../hooks/sortable'
 import {IContentBlockWithCords} from '../../blocks/contentBlock'
 
 import {dragAndDropRearrange} from './cardDetailContentsUtility'
+import {Position} from './cardDetailContents'
 
 function moveBlock(card: Card, srcBlock: IContentBlockWithCords, dstBlock: IContentBlockWithCords, intl: IntlShape, moveTo: Position): void {
     const contentOrder: Array<string | string[]> = []
