@@ -237,11 +237,11 @@ const CardDetailProperties = (props: Props) => {
                         key={x}
                         card={card}
                         x={x}
-                        propertyLength={board.cardProperties.length}
                         intl={intl}
                         readonly={props.readonly}
-                        canEditBoardCards={canEditBoardCards}
                         board={board}
+                        propertyLength={board.cardProperties.length}
+                        canEditBoardCards={canEditBoardCards}
                         canEditBoardProperties={canEditBoardProperties}
                         newTemplateId={newTemplateId}
                         onPropertyChangeSetAndOpenConfirmationDialog={onPropertyChangeSetAndOpenConfirmationDialog}
